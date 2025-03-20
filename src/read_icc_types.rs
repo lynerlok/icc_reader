@@ -213,15 +213,10 @@ pub fn read_vcgt_type(
 
     let vcgt: Option<Vcgt> = match gamma_type {
         0 => {
-            println!("Gamma table found");
             let channels_num = bytes_u16_usize(&vcgt_tag[12..=13])?;
             let entries_num = bytes_u16_usize(&vcgt_tag[14..=15])?;
             let entry_size = bytes_u16_usize(&vcgt_tag[16..=17])?;
             let bitdepth = entry_size * 8;
-
-            println!("Channels # : {}", channels_num);
-            println!("Entries # : {}", entries_num);
-            println!("Bitdepth : {}", bitdepth);
 
             if channels_num != 3 {
                 return Err("channel number must be 3 (RGB)".to_string());
