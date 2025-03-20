@@ -13,7 +13,7 @@ use parse_icc::parse_icc;
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    if args.len() > 4 {
+    if args.len() > 4 || args.len() < 2 {
         print_usage(&args);
         return;
     }
