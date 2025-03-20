@@ -209,8 +209,6 @@ pub fn read_vcgt_type(
 
     let gamma_type = bytes_to_u32(&vcgt_tag[8..=11])?;
 
-    println!("Gamma type : {}", gamma_type);
-
     let vcgt: Option<Vcgt> = match gamma_type {
         0 => {
             let channels_num = bytes_u16_usize(&vcgt_tag[12..=13])?;

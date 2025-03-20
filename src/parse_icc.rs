@@ -232,10 +232,6 @@ pub fn parse_icc(filename: &str, pt_num: &usize, corr_scale: &usize) {
                                 .unwrap(),
                         );
                         tags.push((tag_sig, tag_str.to_string(), tag_offset, tag_size));
-                        println!("    Tag #{}/{}", idx + 1, pf_tag_table_size);
-                        println!("      Tag sig : {}", tag_str);
-                        println!("      Tag offset : {}", tag_offset);
-                        println!("      Tag size : {}", tag_size);
                     }
                     println!("---- TAG INFO ----");
                     for tag in tags {
