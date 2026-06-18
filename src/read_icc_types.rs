@@ -1,7 +1,7 @@
 use crate::bytes_utils::*;
 use crate::rs_types::*;
 
-pub fn read_text_desc_type(icc_raw_data: &[u8], idx: usize) -> Result<(String, String), String> {
+fn read_text_type_v2(icc_raw_data: &[u8], idx: usize) -> Result<(String, String), String> {
     let ascii_desc_size_range: &[u8; 4] = match icc_raw_data[(idx + 8)..=(idx + 11)].try_into() {
         Ok(range) => range,
         Err(err) => return Err(err.to_string()),
@@ -36,15 +36,113 @@ pub fn read_text_desc_type(icc_raw_data: &[u8], idx: usize) -> Result<(String, S
         Err(err) => return Err(err.to_string()),
     };
 
-    let utf_desc_str = match read_utf16(
-        &icc_raw_data[(idx + 12 + ascii_desc_size + 10)
-            ..(idx + 12 + ascii_desc_size + 8 + (utf_desc_size * 2))],
-    ) {
-        Some(str) => str,
-        None => return Err("Unable to read UTF16 string".to_string()),
-    };
+    let mut utf_desc_str = "None".to_string();
+
+    if utf_desc_size >= 4 {
+        utf_desc_str = match read_utf16(
+            &icc_raw_data[(idx + 12 + ascii_desc_size + 8)
+                ..(idx + 12 + ascii_desc_size + 8 + (2 * utf_desc_size))],
+        ) {
+            Some(str) => str,
+            None => return Err("Unable to read UTF16 string".to_string()),
+        };
+    }
 
     Ok((ascii_desc_str.to_string(), utf_desc_str))
+}
+
+fn read_text_type_v4(icc_raw_data: &[u8], idx: usize) -> Result<(String, String), String> {
+    let utf_desc_size_range: &[u8; 4] = match icc_raw_data[(idx + 8)..=(idx + 11)].try_into() {
+        Ok(range) => range,
+        Err(err) => return Err(err.to_string()),
+    };
+    let utf_desc_size = match usize::try_from(u32::from_be_bytes(*utf_desc_size_range)) {
+        Ok(usize) => usize,
+        Err(err) => return Err(err.to_string()),
+    };
+
+    let mut utf_str_vec: Vec<String> = Vec::with_capacity(utf_desc_size);
+
+    for int_idx in 0..utf_desc_size {
+        let utf_lang_code_range: &[u8; 2] = match icc_raw_data
+            [(idx + 16 + (int_idx * 15))..=(idx + 17 + (int_idx * 15))]
+            .try_into()
+        {
+            Ok(range) => range,
+            Err(err) => return Err(err.to_string()),
+        };
+
+        let utf_lang_code = String::from_utf8_lossy(utf_lang_code_range);
+
+        let utf_country_code_range: &[u8; 2] = match icc_raw_data
+            [(idx + 18 + (int_idx * 15))..=(idx + 19 + (int_idx * 15))]
+            .try_into()
+        {
+            Ok(range) => range,
+            Err(err) => return Err(err.to_string()),
+        };
+
+        let utf_country_code = String::from_utf8_lossy(utf_country_code_range);
+
+        let utf_desc_size_range: &[u8; 4] = match icc_raw_data
+            [(idx + 20 + (int_idx * 15))..=(idx + 23 + (int_idx * 15))]
+            .try_into()
+        {
+            Ok(range) => range,
+            Err(err) => return Err(err.to_string()),
+        };
+
+        let utf_desc_size = match usize::try_from(u32::from_be_bytes(*utf_desc_size_range)) {
+            Ok(usize) => usize,
+            Err(err) => return Err(err.to_string()),
+        };
+
+        let utf_desc_offset_range: &[u8; 4] = match icc_raw_data
+            [(idx + 24 + (int_idx * 15))..=(idx + 27 + (int_idx * 15))]
+            .try_into()
+        {
+            Ok(range) => range,
+            Err(err) => return Err(err.to_string()),
+        };
+
+        let utf_desc_offset = match usize::try_from(u32::from_be_bytes(*utf_desc_offset_range)) {
+            Ok(usize) => usize,
+            Err(err) => return Err(err.to_string()),
+        };
+
+        let mut utf_desc_str = "None".to_string();
+
+        if utf_desc_size >= 2 {
+            utf_desc_str = match read_utf16(
+                &icc_raw_data
+                    [(idx + utf_desc_offset)..=(idx + utf_desc_offset + utf_desc_size + 1)],
+            ) {
+                Some(str) => str,
+                None => return Err("Unable to read UTF16 string".to_string()),
+            };
+        }
+
+        utf_str_vec.push(format!(
+            "({}/{}) {}",
+            utf_lang_code, utf_country_code, utf_desc_str
+        ));
+    }
+
+    Ok(("None".to_string(), utf_str_vec[0].clone()))
+}
+
+pub fn read_text_desc_type(icc_raw_data: &[u8], idx: usize) -> Result<(String, String), String> {
+    let tag_sig_range: &[u8; 4] = match icc_raw_data[idx..=(idx + 3)].try_into() {
+        Ok(range) => range,
+        Err(err) => return Err(err.to_string()),
+    };
+    let tag_sig = u32::from_be_bytes(*tag_sig_range);
+
+    match tag_sig {
+        0x6D6C7563 => read_text_type_v4(icc_raw_data, idx),
+        0x64657363 => read_text_type_v2(icc_raw_data, idx),
+        _ => Err("Bad tag signature for description".to_string()),
+    }
 }
 
 pub fn read_text_type(
@@ -57,9 +155,22 @@ pub fn read_text_type(
         Err(err) => return Err(err.to_string()),
     };
     let text_sig = u32::from_be_bytes(*text_sig_range);
-    let text_str = String::from_utf8_lossy(&icc_raw_data[(idx + 8)..(idx + end)]);
 
-    Ok((text_sig, text_str.to_string()))
+    match text_sig {
+        0x74657874 => {
+            let text_str = String::from_utf8_lossy(&icc_raw_data[(idx + 8)..(idx + end)]);
+
+            Ok((text_sig, text_str.to_string()))
+        }
+        0x6D6C7563 => {
+            let text_str = match read_text_type_v4(icc_raw_data, idx) {
+                Ok(str) => str.1,
+                Err(err) => return Err(err.to_string()),
+            };
+            Ok((text_sig, text_str))
+        }
+        _ => Ok((0, "None".to_string())),
+    }
 }
 
 pub fn new_xyz(x: &[u8], y: &[u8], z: &[u8]) -> Result<XYZNumber, String> {
