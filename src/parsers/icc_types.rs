@@ -1,5 +1,6 @@
-use crate::bytes_utils::*;
-use crate::rs_types::*;
+use crate::types::icc::*;
+use crate::utils::bytes::*;
+use crate::utils::icc::ICC_CHRM_TYPE;
 
 fn read_text_type_v2(icc_raw_data: &[u8], idx: usize) -> Result<(String, String), String> {
     let ascii_desc_size_range: &[u8; 4] = match icc_raw_data[(idx + 8)..=(idx + 11)].try_into() {
@@ -131,7 +132,7 @@ fn read_text_type_v4(icc_raw_data: &[u8], idx: usize) -> Result<(String, String)
     Ok(("None".to_string(), utf_str_vec[0].clone()))
 }
 
-pub fn read_text_desc_type(icc_raw_data: &[u8], idx: usize) -> Result<(String, String), String> {
+pub fn read_text_desc_type(icc_raw_data: &[u8], idx: usize) -> Result<DescType, String> {
     let tag_sig_range: &[u8; 4] = match icc_raw_data[idx..=(idx + 3)].try_into() {
         Ok(range) => range,
         Err(err) => return Err(err.to_string()),
@@ -433,4 +434,316 @@ pub fn read_vcgt_type(
     };
 
     Ok(vcgt)
+}
+
+fn read_lut8_type(icc_raw_data: &[u8], idx: usize, tag_size: usize) -> Result<Lut8, String> {
+    let lut_sig = bytes_to_u32(&icc_raw_data[idx..=idx + 3])?;
+
+    let lut_in_channels_num = icc_raw_data[idx + 8];
+    let lut_out_channels_num = icc_raw_data[idx + 9];
+    let lut_grid_pts_num = icc_raw_data[idx + 10];
+    let mut lut_encoded_params: Vec<S15Fixed16Number> = Vec::with_capacity(9);
+
+    for e_param_idx in (12..=44).step_by(4) {
+        let e_param =
+            match bytes_to_sf32(&icc_raw_data[(idx + e_param_idx)..=(idx + e_param_idx + 3)]) {
+                Ok(sf32) => sf32,
+                Err(err) => return Err(err.to_string()),
+            };
+        lut_encoded_params.push(e_param);
+    }
+
+    let lut_in_table_size: usize = 256 * <u8 as Into<usize>>::into(lut_in_channels_num);
+
+    let mut lut_in_table: Vec<u8> = Vec::with_capacity(lut_in_table_size);
+
+    for lut_in in icc_raw_data
+        .iter()
+        .take(idx + 47 + lut_in_table_size + 1)
+        .skip(idx + 48)
+    {
+        lut_in_table.push(*lut_in);
+    }
+
+    let lut_clut_table_size: usize =
+        (lut_grid_pts_num.pow(lut_in_channels_num.into()) * lut_out_channels_num).into();
+    let mut lut_clut_table: Vec<u8> = Vec::with_capacity(lut_clut_table_size);
+
+    for lut_clut in icc_raw_data
+        .iter()
+        .take(idx + 47 + lut_in_table_size + lut_clut_table_size + 1)
+        .skip(idx + 48 + lut_in_table_size)
+    {
+        lut_clut_table.push(*lut_clut);
+    }
+
+    let lut_out_table_size: usize = 256 * <u8 as Into<usize>>::into(lut_out_channels_num);
+
+    let mut lut_out_table: Vec<u8> = Vec::with_capacity(lut_out_table_size);
+
+    for lut_out in icc_raw_data
+        .iter()
+        .take(tag_size)
+        .skip(idx + 48 + lut_in_table_size + lut_clut_table_size)
+    {
+        lut_out_table.push(*lut_out);
+    }
+
+    let lut8: Lut8 = Lut8 {
+        lut_sig,
+        in_chans_num: lut_in_channels_num,
+        out_chans_num: lut_out_channels_num,
+        grid_pts_num: lut_grid_pts_num,
+        e_params: lut_encoded_params,
+        in_table: lut_in_table,
+        clut_table: lut_clut_table,
+        out_table: lut_out_table,
+    };
+
+    Ok(lut8)
+}
+
+fn read_lut16_type(icc_raw_data: &[u8], idx: usize, tag_size: usize) -> Result<Lut16, String> {
+    let lut_sig = bytes_to_u32(&icc_raw_data[idx..=idx + 3])?;
+
+    let lut_in_channels_num = icc_raw_data[idx + 8];
+    let lut_out_channels_num = icc_raw_data[idx + 9];
+    let lut_grid_pts_num = icc_raw_data[idx + 10];
+    let mut lut_encoded_params: Vec<S15Fixed16Number> = Vec::with_capacity(9);
+
+    for e_param_idx in (12..=44).step_by(4) {
+        let e_param = bytes_to_sf32(&icc_raw_data[(idx + e_param_idx)..=(idx + e_param_idx + 3)])?;
+        lut_encoded_params.push(e_param);
+    }
+
+    let lut_in_entries_num: u16 = bytes_to_u16(&icc_raw_data[idx + 48..=idx + 49])?;
+
+    let lut_out_entries_num: u16 = bytes_to_u16(&icc_raw_data[idx + 50..=idx + 51])?;
+
+    let lut_in_table_size: usize =
+        (2 * lut_in_entries_num * <u8 as Into<u16>>::into(lut_in_channels_num)).into();
+
+    let mut lut_in_table: Vec<u16> = Vec::with_capacity(lut_in_table_size);
+
+    for table_idx in ((idx + 52)..=(idx + 49 + lut_in_table_size)).step_by(2) {
+        let table_val: u16 = match bytes_to_u16(&icc_raw_data[table_idx..=table_idx + 1]) {
+            Ok(u16) => u16,
+            Err(err) => return Err(err.to_string()),
+        };
+        lut_in_table.push(table_val);
+    }
+
+    let lut_clut_table_size: usize = 2
+        * <u8 as Into<usize>>::into(lut_grid_pts_num).pow(lut_in_channels_num.into())
+        * <u8 as Into<usize>>::into(lut_out_channels_num);
+
+    let mut lut_clut_table: Vec<u16> = Vec::with_capacity(lut_clut_table_size);
+
+    for clut_idx in ((idx + 52 + lut_in_table_size)
+        ..=(idx + 51 + lut_in_table_size + lut_clut_table_size))
+        .step_by(2)
+    {
+        let clut_val: u16 = match bytes_to_u16(&icc_raw_data[clut_idx..=clut_idx + 1]) {
+            Ok(u16) => u16,
+            Err(err) => return Err(err.to_string()),
+        };
+        lut_clut_table.push(clut_val);
+    }
+
+    let lut_out_table_size: usize = 2
+        * <u8 as Into<usize>>::into(lut_out_channels_num)
+        * <u16 as Into<usize>>::into(lut_out_entries_num);
+
+    let mut lut_out_table: Vec<u16> = Vec::with_capacity(lut_out_table_size);
+
+    //println!("TAG size : {}", tag_size);
+    //println!(
+    //    "SIZE : {}",
+    //    (idx + 52 + lut_in_table_size + lut_clut_table_size)
+    //);
+    //
+    for table_idx in ((idx + 52 + lut_in_table_size + lut_clut_table_size)..tag_size).step_by(2) {
+        let table_val: u16 = match bytes_to_u16(&icc_raw_data[table_idx..=table_idx + 1]) {
+            Ok(u16) => u16,
+            Err(err) => return Err(err.to_string()),
+        };
+        lut_out_table.push(table_val);
+    }
+
+    let lut16: Lut16 = Lut16 {
+        lut_sig,
+        in_chans_num: lut_in_channels_num,
+        out_chans_num: lut_out_channels_num,
+        grid_pts_num: lut_grid_pts_num,
+        e_params: lut_encoded_params,
+        in_table_entries_num: lut_in_entries_num,
+        out_table_entries_num: lut_out_entries_num,
+        in_table: lut_in_table,
+        clut_table: lut_clut_table,
+        out_table: lut_out_table,
+    };
+
+    Ok(lut16)
+}
+
+//pub fn read_a2b_type(icc_raw_data: &[u8], idx: usize, tag_size: usize) -> Result<A2B, String> {}
+
+pub fn read_curve_type(icc_raw_data: &[u8], idx: usize) -> Result<Curve, String> {
+    let n_entries_u32: u32 = bytes_to_u32(&icc_raw_data[idx + 8..=idx + 11])?;
+    let n_entries: usize = n_entries_u32.try_into().unwrap();
+
+    let mut curve = Curve {
+        identity: false,
+        gamma: None,
+        curve: None,
+    };
+
+    match n_entries {
+        0 => {
+            curve.identity = true;
+        }
+        1 => {
+            let gamma_val = bytes_to_uf8(&icc_raw_data[idx + 12..=idx + 13])?;
+            curve.gamma = Some(gamma_val);
+        }
+        n if n > 1 => {
+            let mut curve_arr: Vec<u16> = Vec::with_capacity(n_entries);
+            for entry in (0..n_entries).step_by(2) {
+                let entry: u16 =
+                    bytes_to_u16(&icc_raw_data[idx + 12 + entry..=idx + 12 + entry + 1])?;
+                curve_arr.push(entry);
+            }
+            curve.curve = Some(curve_arr);
+        }
+        _ => return Err("The number of curve entries is not in possible values".to_string()),
+    };
+
+    Ok(curve)
+}
+
+pub fn read_a2b_type(icc_raw_data: &[u8], idx: usize, tag_size: usize) -> Result<Lut, String> {
+    let lut_depth: u32 = bytes_to_u32(&icc_raw_data[(idx)..=(idx + 3)])?;
+
+    match lut_depth {
+        0x6D667431 => {
+            // Lut8 'mft1'
+            match read_lut8_type(icc_raw_data, idx, tag_size) {
+                Ok(lut8) => Ok((Some(lut8), None)),
+                Err(err) => Err(err.to_string()),
+            }
+        }
+        0x6D667432 => {
+            // Lut16 'mft2'
+            match read_lut16_type(icc_raw_data, idx, tag_size) {
+                Ok(lut16) => Ok((None, Some(lut16))),
+                Err(err) => Err(err.to_string()),
+            }
+        }
+        _ => Err(format!(
+            "Unable to detect the LUT's bit depth (0x{:X})",
+            lut_depth
+        )),
+    }
+}
+
+pub fn read_b2a_type(icc_raw_data: &[u8], idx: usize, tag_size: usize) -> Result<Lut, String> {
+    let lut_depth: u32 = bytes_to_u32(&icc_raw_data[(idx)..=(idx + 3)])?;
+
+    match lut_depth {
+        0x6D667431 => {
+            // Lut8 'mft1'
+            match read_lut8_type(icc_raw_data, idx, tag_size) {
+                Ok(lut8) => Ok((Some(lut8), None)),
+                Err(err) => Err(err.to_string()),
+            }
+        }
+        0x6D667432 => {
+            // Lut16 'mft2'
+            match read_lut16_type(icc_raw_data, idx, tag_size) {
+                Ok(lut16) => Ok((None, Some(lut16))),
+                Err(err) => Err(err.to_string()),
+            }
+        }
+        _ => Err(format!(
+            "Unable to detect the LUT's bit depth (0x{:X})",
+            lut_depth
+        )),
+    }
+}
+
+pub fn read_chrm_type(icc_raw_data: &[u8], idx: usize) -> Result<Chrm, String> {
+    let chrm_chan_num: u16 = bytes_to_u16(&icc_raw_data[(idx + 8)..=(idx + 9)])?;
+    let chrm_chan_num_usize: usize = chrm_chan_num.into();
+    let phs_col_type: u16 = bytes_to_u16(&icc_raw_data[(idx + 10)..=(idx + 11)])?;
+    let mut phs_col_type_str: String = "Unknown".to_string();
+
+    if phs_col_type > 0 {
+        phs_col_type_str = ICC_CHRM_TYPE[<u16 as Into<usize>>::into(phs_col_type) - 1]
+            .0
+            .to_string();
+
+        if chrm_chan_num != 3 {
+            return Err(format!(
+                "The number of channel ({}) not match the colorant type ({})",
+                chrm_chan_num, phs_col_type,
+            ));
+        }
+    };
+
+    let mut chrm_channels: Vec<(U16Fixed16Number, U16Fixed16Number)> =
+        Vec::with_capacity(chrm_chan_num.into());
+
+    for chan_idx in (0..(chrm_chan_num_usize * 8)).step_by(8) {
+        let x_slice = &icc_raw_data[(idx + 12 + chan_idx)..=(idx + 12 + chan_idx + 3)];
+        let y_slice = &icc_raw_data[(idx + 12 + chan_idx + 4)..=(idx + 12 + chan_idx + 7)];
+        let x = bytes_to_uf16(x_slice)?;
+        let y = bytes_to_uf16(y_slice)?;
+
+        chrm_channels.push((x, y));
+    }
+
+    if chrm_channels.is_empty() {
+        return Err("No channels found in chrm".to_string());
+    };
+
+    let chan_1 = Some(chrm_channels[0]);
+
+    let chan_2 = if chrm_channels.len() > 1 {
+        Some(chrm_channels[1])
+    } else {
+        None
+    };
+    let chan_3 = if chrm_channels.len() > 2 {
+        Some(chrm_channels[2])
+    } else {
+        None
+    };
+
+    let chrm = Chrm {
+        phs_col_type: phs_col_type_str,
+        chans_num: chrm_chan_num,
+        chan_1,
+        chan_2,
+        chan_3,
+    };
+
+    Ok(chrm)
+}
+
+pub fn read_mmod_type(icc_raw_data: &[u8], idx: usize) -> Result<MmodType, String> {
+    let mmod_sig = bytes_to_u32(&icc_raw_data[idx..=idx + 3])?;
+
+    if mmod_sig != 0x6D6D6F64 {
+        return Err(format!(
+            "Bad tag signature for mmod (0x6D6D6F64) found {}",
+            mmod_sig
+        ));
+    };
+
+    let manufacturer: u16 = bytes_to_u16(&icc_raw_data[idx + 10..=idx + 11])?;
+    let device: u16 = bytes_to_u16(&icc_raw_data[idx + 14..=idx + 15])?;
+
+    let mmod: MmodType = (manufacturer, device);
+
+    Ok(mmod)
 }

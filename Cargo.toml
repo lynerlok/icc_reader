@@ -5,3 +5,6 @@ edition = "2021"
 
 [dependencies]
 fixed = "*"
+csv = "^1.4.0"
+json = "^0.12.4"
+

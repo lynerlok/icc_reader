@@ -1,4 +1,4 @@
-use crate::rs_types::S15Fixed16Number;
+use crate::types::icc::{S15Fixed16Number, U16Fixed16Number, U8Fixed8Number};
 
 pub fn get_bits_of_byte(byte: u8) -> [u8; 8] {
     let mut bits = [0u8; 8];
@@ -45,10 +45,7 @@ pub fn bytes_u16_usize(bytes: &[u8]) -> Result<usize, String> {
         Err(err) => return Err(err.to_string()),
     };
     let u16 = u16::from_be_bytes(*bytes_arr);
-    let usize = match usize::try_from(u16) {
-        Ok(usize) => usize,
-        Err(err) => return Err(err.to_string()),
-    };
+    let usize = From::from(u16);
     Ok(usize)
 }
 
@@ -59,6 +56,24 @@ pub fn bytes_to_sf32(bytes: &[u8]) -> Result<S15Fixed16Number, String> {
     };
     let sf32 = S15Fixed16Number::from_be_bytes(*bytes_arr);
     Ok(sf32)
+}
+
+pub fn bytes_to_uf8(bytes: &[u8]) -> Result<U8Fixed8Number, String> {
+    let bytes_arr: &[u8; 2] = match bytes.try_into() {
+        Ok(bytes) => bytes,
+        Err(err) => return Err(err.to_string()),
+    };
+    let uf8 = U8Fixed8Number::from_be_bytes(*bytes_arr);
+    Ok(uf8)
+}
+
+pub fn bytes_to_uf16(bytes: &[u8]) -> Result<U16Fixed16Number, String> {
+    let bytes_arr: &[u8; 4] = match bytes.try_into() {
+        Ok(bytes) => bytes,
+        Err(err) => return Err(err.to_string()),
+    };
+    let uf16 = U16Fixed16Number::from_be_bytes(*bytes_arr);
+    Ok(uf16)
 }
 
 pub fn read_utf16(slice: &[u8]) -> Option<String> {
