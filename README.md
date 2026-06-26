@@ -1,21 +1,4 @@
-# ICC Reader Utils
-
-This project is a little ICC utility program made to be fast and realiable. At the moment, it can parse an ICC profile and display the result in stdout in a pretty print format.
-
-The VCGT has an option to display the delta of correction to achieve the correct gamma of the three primaries. It's useful for people that manualy calibrate device not compatible with ICC profile but only the profile is provided by the calibration processus.
-
-## USAGE
-
-`Usage : target/debug/icc-reader icc_profile_file_name [number of point to extract from vcgt] [correction scale in your monitor (+/- this value)]`
-
-## TO DO
-
-- Export to JSON the profile info.
-- Export the curves in CSV.
-- Add the others tags and type omit in the protoype.
-- Improve the cli args.
-
-# ICC Reader Utils: A Fast and Reliable ICC Profile Parser
+# ICC Reader: A Fast and Reliable ICC Profile Parser
 
 A Rust utility for parsing and analyzing ICC profiles. This tool is designed to be fast and reliable, providing pretty-printed output for ICC profile data. It also includes a feature to calculate the delta of correction for achieving the correct gamma of the three primaries, which is useful for manually calibrating devices that are not compatible with ICC profiles.
 
